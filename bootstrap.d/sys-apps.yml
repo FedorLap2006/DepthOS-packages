@@ -57,7 +57,7 @@ packages:
 
   - name: mdinit
     source:
-      subdir: sources
+      subdir: apps
     tools_required:
       - cross-gcc
       - cross-binutils
