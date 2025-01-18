@@ -1,0 +1,102 @@
+
+sources:
+  - name: gnugo
+    subdir: sources
+    git: 'https://git.savannah.gnu.org/git/gnugo.git'
+    branch: master
+  - name: gnuchess
+    subdir: sources
+    git: 'https://git.savannah.gnu.org/git/chess.git'
+    branch: master
+    tools_required:
+      - host-autoconf-2.72
+      - host-libtool
+      - host-autoconf-archive
+    regenerate:
+      - args: ['autoreconf', '-f', '-i']
+      - args: ['cp', '@SOURCE_ROOT@/sources/gnuconfig/config.sub', '@THIS_SOURCE_DIR@/.']
+
+
+packages:
+  - name: gnugo-bootstrap
+    from_source: gnugo
+    tools_required:
+    - host-autoconf-2.69
+    configure:
+      - args:
+        - '@THIS_SOURCE_DIR@/configure'
+        - '--prefix=/usr'
+        environ:
+          ac_cv_header_ncurses_curses_h: 'no'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+
+  - name: gnugo
+    from_source: gnugo
+    tools_required:
+      - cross-gcc
+      - cross-binutils
+      - host-autoconf-2.69
+    pkgs_required:
+      - gnugo-bootstrap
+    configure:
+      - args:
+        - '@THIS_SOURCE_DIR@/configure'
+        - '--host=@OPTION:arch-triple@'
+        - '--prefix=/usr'
+        environ:
+          ac_cv_header_ncurses_curses_h: 'no'
+        # - CFLAGS="-static"
+      - args: ['ls', '@BUILD_ROOT@/pkg-builds/gnugo-bootstrap']
+      - args: ['echo', ]
+      - args: 
+        - 'sed'
+        - '-i'
+        # - 's/\.\/\(joseki\|mkpat\|mkeyes\|uncompress_fuseki\|mkmcpat\)/@BUILD_ROOT@\/pkg-builds\/gnugo-bootstrap\/patterns\/\1/'
+        - 's^\./\(joseki\|mkpat\|mkeyes\|uncompress_fuseki\|mkmcpat\)^@BUILD_ROOT@/pkg-builds/gnugo-bootstrap/patterns/\1^'
+        - 'patterns/Makefile'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+      - args: ['make', 'install']
+        environ:
+          DESTDIR: '@THIS_COLLECT_DIR@'
+        quiet: false
+
+  - name: gnuchess-bootstrap
+    from_source: gnuchess
+    tools_required:
+    - cross-gcc
+    - cross-binutils
+    configure:
+    - args:
+      - '@THIS_SOURCE_DIR@/configure'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+      - args: ['ls', '@THIS_BUILD_DIR@']
+
+
+
+  - name: gnuchess
+    from_source: gnuchess
+    tools_required:
+    - cross-gcc
+    - cross-binutils
+    pkgs_required:
+      - gnuchess-bootstrap
+    configure:
+    - args:
+      - '@THIS_SOURCE_DIR@/configure'
+      - '--host=@OPTION:arch-triple@'
+      - '--prefix=/usr/local'
+      environ:
+        ac_cv_func_realloc_0_nonnull: 'yes'
+        ac_cv_func_malloc_0_nonnull: 'yes'
+    build:
+      - args: ['make', '-j@PARALLELISM@']
+      - args: ['cp', '@BUILD_ROOT@/pkg-builds/gnuchess-bootstrap/man/gnuchess.1', 'man/gnuchess.1']
+      - args: ['make', 'install']
+        environ:
+          DESTDIR: '@THIS_COLLECT_DIR@'
+        quiet: false
+
+

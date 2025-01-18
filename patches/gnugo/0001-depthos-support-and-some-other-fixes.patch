@@ -1,0 +1,312 @@
+From d35eb4d626dfa312459be4fae930ba1fe514e7de Mon Sep 17 00:00:00 2001
+From: Fedor Lapshin <fe.lap.prog@gmail.com>
+Date: Sat, 18 Jan 2025 15:08:49 +0300
+Subject: [PATCH] depthos support and some other fixes
+
+---
+ doc/gnugo.texi         |  2 +-
+ doc/montecarlo.texi    |  2 +-
+ engine/hash.h          |  3 +-
+ engine/liberty.h       |  4 +--
+ engine/unconditional.c |  2 ++
+ interface/Makefile.am  |  8 ++---
+ interface/main.c       | 12 +++----
+ utils/getopt1.c        |  4 +++
+ utils/winsocket.c      |  2 +-
+ utils/winsocket.h      | 73 +++++++++++++++++-------------------------
+ 10 files changed, 52 insertions(+), 60 deletions(-)
+
+diff --git a/doc/gnugo.texi b/doc/gnugo.texi
+index 09e830a0..a2149862 100644
+--- a/doc/gnugo.texi
++++ b/doc/gnugo.texi
+@@ -26,7 +26,7 @@
+ 
+ @sp 1
+ @page
+-@title{GNU Go 3.8}
++@title GNU Go 3.8
+ @vskip 0pt plus 1filll
+ Copyright @copyright{} 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007,
+ 2008, 2009, 2010 and 2011 @uref{http://www.fsf.org,Free Software
+diff --git a/doc/montecarlo.texi b/doc/montecarlo.texi
+index f017f868..e20c851c 100644
+--- a/doc/montecarlo.texi
++++ b/doc/montecarlo.texi
+@@ -245,7 +245,7 @@ These can be combined arbitrarily but all must be satisfied for the
+ pattern to take effect. If contradictory properties are combined, the
+ pattern will never match.
+ 
+-@subsection Final Remarks
++@section Final Remarks
+ 
+ @itemize
+ @item  Move values are unsigned 32-bit integers. To avoid overflow in
+diff --git a/engine/hash.h b/engine/hash.h
+index 5435c989..6320ed3f 100644
+--- a/engine/hash.h
++++ b/engine/hash.h
+@@ -25,6 +25,7 @@
+ #define _HASH_H_
+ 
+ #include "config.h"
++#include <stdint.h>
+ #include <limits.h>
+ 
+ /*
+@@ -51,7 +52,7 @@
+  * risk for hash collisions probably isn't worth the increased storage
+  * cost.
+  */
+-typedef unsigned long Hashvalue;
++typedef uint64_t Hashvalue;
+ #define SIZEOF_HASHVALUE SIZEOF_LONG
+ #define HASHVALUE_PRINT_FORMAT "%0*lx"
+ 
+diff --git a/engine/liberty.h b/engine/liberty.h
+index 2346d0b4..aefe7885 100644
+--- a/engine/liberty.h
++++ b/engine/liberty.h
+@@ -859,8 +859,8 @@ struct worm_data {
+ extern struct worm_data worm[BOARDMAX];
+ 
+ /* Unconditionally meaningless moves. */
+-int meaningless_black_moves[BOARDMAX];
+-int meaningless_white_moves[BOARDMAX];
++extern int meaningless_black_moves[BOARDMAX];
++extern int meaningless_white_moves[BOARDMAX];
+ 
+ /* Surround cache (see surround.c) */
+ 
+diff --git a/engine/unconditional.c b/engine/unconditional.c
+index f8c2697a..93bc6dbc 100644
+--- a/engine/unconditional.c
++++ b/engine/unconditional.c
+@@ -542,6 +542,8 @@ unconditional_life(int unconditional_territory[BOARDMAX], int color)
+   }
+ }
+ 
++int meaningless_black_moves[BOARDMAX];
++int meaningless_white_moves[BOARDMAX];
+ 
+ /* By unconditional status analysis we can statically find some moves
+  * which there is never any need to play. Those belong to three
+diff --git a/interface/Makefile.am b/interface/Makefile.am
+index d4d00780..66ec2d31 100644
+--- a/interface/Makefile.am
++++ b/interface/Makefile.am
+@@ -30,11 +30,11 @@ gnugo_SOURCES = \
+ 	gmp.c \
+ 	gtp.c
+ 
+-gnugo-xpms.el : $(shell ls xpms/*.xpm)
+-	emacs -batch --no-site-file -l make-xpms-file.el -f make-xpms-file $@ $(shell ls xpms/*.xpm)
++gnugo-xpms.el : $(shell ls $(srcdir)/xpms/*.xpm)
++	emacs -batch --no-site-file -l make-xpms-file.el -f make-xpms-file $@ $(shell ls $(srcdir)/xpms/*.xpm)
+ 
+-gnugo-big-xpms.el : $(shell ls xpms/*.xpm)
+-	emacs -batch --no-site-file -l make-xpms-file.el -f make-xpms-file $@ $(shell ls big-xpms/*.xpm)
++gnugo-big-xpms.el : $(shell ls $(srcdir)/xpms/*.xpm)
++	emacs -batch --no-site-file -l make-xpms-file.el -f make-xpms-file $@ $(shell ls $(srcdir)/big-xpms/*.xpm)
+ 
+ AIXOPTS=-O -qmaxmem=16384 -qro -qroconst -qinfo
+ 
+diff --git a/interface/main.c b/interface/main.c
+index 9ec18956..1dff1e54 100644
+--- a/interface/main.c
++++ b/interface/main.c
+@@ -1759,19 +1759,19 @@ socket_connect_to(const char *host_name, unsigned int port,
+     exit(EXIT_FAILURE);
+   }
+ 
+-#if !USE_WINDOWS_SOCKET_CLUDGE
++#if !((defined(_WIN32) || defined(_WIN32_WCE)) && defined(ENABLE_SOCKET_SUPPORT))
+ 
+   *input_file  = fdopen(connection_socket, "r");
+   *output_file = fdopen(dup(connection_socket), "w");
+ 
+-#else	/* USE_WINDOWS_SOCKET_CLUDGE */
++#else	/* ((defined(_WIN32) || defined(_WIN32_WCE)) && defined(ENABLE_SOCKET_SUPPORT)) */
+ 
+   winsocket_activate(connection_socket);
+ 
+   *input_file  = NULL;
+   *output_file = NULL;
+ 
+-#endif	/* USE_WINDOWS_SOCKET_CLUDGE */
++#endif	/* ((defined(_WIN32) || defined(_WIN32_WCE)) && defined(ENABLE_SOCKET_SUPPORT)) */
+ }
+ 
+ 
+@@ -1836,19 +1836,19 @@ socket_listen_at(const char *host_name, unsigned int port,
+ 
+   closesocket(listening_socket);
+ 
+-#if !USE_WINDOWS_SOCKET_CLUDGE
++#if !((defined(_WIN32) || defined(_WIN32_WCE)) && defined(ENABLE_SOCKET_SUPPORT))
+ 
+   *input_file  = fdopen(connection_socket, "r");
+   *output_file = fdopen(dup(connection_socket), "w");
+ 
+-#else	/* USE_WINDOWS_SOCKET_CLUDGE */
++#else	/* ((defined(_WIN32) || defined(_WIN32_WCE)) && defined(ENABLE_SOCKET_SUPPORT)) */
+ 
+   winsocket_activate(connection_socket);
+ 
+   *input_file  = NULL;
+   *output_file = NULL;
+ 
+-#endif	/* USE_WINDOWS_SOCKET_CLUDGE */
++#endif	/* ((defined(_WIN32) || defined(_WIN32_WCE)) && defined(ENABLE_SOCKET_SUPPORT)) */
+ }
+ 
+ 
+diff --git a/utils/getopt1.c b/utils/getopt1.c
+index 6d59e78e..a27b54b3 100644
+--- a/utils/getopt1.c
++++ b/utils/getopt1.c
+@@ -77,6 +77,8 @@ gg_getopt_long (argc, argv, options, long_options, opt_index)
+    but does match a short option, it is parsed as a short option
+    instead.  */
+ 
++#ifndef __depthos__
++
+ int
+ getopt_long_only (argc, argv, options, long_options, opt_index)
+      int argc;
+@@ -88,6 +90,8 @@ getopt_long_only (argc, argv, options, long_options, opt_index)
+   return _getopt_internal (argc, argv, options, long_options, opt_index, 1);
+ }
+ 
++#endif
++
+ 
+ #endif	/* Not ELIDE_CODE.  */
+ 
+diff --git a/utils/winsocket.c b/utils/winsocket.c
+index 24d5fc23..d6ed5938 100644
+--- a/utils/winsocket.c
++++ b/utils/winsocket.c
+@@ -34,7 +34,7 @@
+ #include "winsocket.h"
+ 
+ 
+-#if USE_WINDOWS_SOCKET_CLUDGE
++#if ((defined(_WIN32) || defined(_WIN32_WCE)) && defined(ENABLE_SOCKET_SUPPORT))
+ 
+ 
+ #include <assert.h>
+diff --git a/utils/winsocket.h b/utils/winsocket.h
+index 9b48da3f..a63ea5b4 100644
+--- a/utils/winsocket.h
++++ b/utils/winsocket.h
+@@ -21,28 +21,18 @@
+  * Boston, MA 02111, USA.                                            *
+ \* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+ 
+-
+ #ifndef GNU_GO_WINSOCKET_H
+ #define GNU_GO_WINSOCKET_H
+ 
+-
+ #ifdef HAVE_CONFIG_H
+ #include <config.h>
+ #endif
+ 
+-
+-#define USE_WINDOWS_SOCKET_CLUDGE		\
+-  ((defined(_WIN32) || defined(_WIN32_WCE))	\
+-   && defined(ENABLE_SOCKET_SUPPORT))
+-
+-
+-#if USE_WINDOWS_SOCKET_CLUDGE
+-
++#if ((defined(_WIN32) || defined(_WIN32_WCE)) && defined(ENABLE_SOCKET_SUPPORT))
+ 
+ #include <stdarg.h>
+ #include <stdio.h>
+ 
+-
+ #ifndef WINSOCKET_H_INTERNAL_INCLUSION
+ 
+ /* (sic.) Teh cludge. */
+@@ -54,48 +44,43 @@
+ #undef feof
+ #endif
+ 
+-#define setbuf		winsocket_setbuf
+-#define fflush		winsocket_fflush
+-#define feof		winsocket_feof
+-#define fclose		winsocket_fclose
+-
+-#define fread		winsocket_fread
+-#define fgets		winsocket_fgets
+-
+-#define fwrite		winsocket_fwrite
+-#define fputc		winsocket_fputc
+-#define fputs		winsocket_fputs
+-#define fprintf		winsocket_fprintf
+-#define vfprintf	winsocket_vfprintf
+-
+-#endif	/* WINSOCKET_H_INTERNAL_INCLUSION */
+-
++#define setbuf winsocket_setbuf
++#define fflush winsocket_fflush
++#define feof winsocket_feof
++#define fclose winsocket_fclose
+ 
+-void		winsocket_activate(int _socket_handle);
++#define fread winsocket_fread
++#define fgets winsocket_fgets
+ 
+-void		winsocket_setbuf(FILE *file, char *buffer);
+-int		winsocket_fflush(FILE *file);
+-int		winsocket_feof(FILE *file);
+-int		winsocket_fclose(FILE *file);
++#define fwrite winsocket_fwrite
++#define fputc winsocket_fputc
++#define fputs winsocket_fputs
++#define fprintf winsocket_fprintf
++#define vfprintf winsocket_vfprintf
+ 
+-size_t		winsocket_fread(void *buffer,
+-				size_t size, size_t num_items, FILE *file);
+-char *		winsocket_fgets(char *buffer, int size, FILE *file);
++#endif /* WINSOCKET_H_INTERNAL_INCLUSION */
+ 
+-size_t		winsocket_fwrite(const void *buffer,
+-				 size_t size, size_t num_items, FILE *file);
+-int		winsocket_fputc(int character, FILE *file);
+-int		winsocket_fputs(const char *string, FILE *file);
+-int		winsocket_fprintf(FILE *file, const char *format_string, ...);
+-int		winsocket_vfprintf(FILE *file, const char *format_string,
+-				   va_list arguments);
++void winsocket_activate(int _socket_handle);
+ 
++void winsocket_setbuf(FILE *file, char *buffer);
++int winsocket_fflush(FILE *file);
++int winsocket_feof(FILE *file);
++int winsocket_fclose(FILE *file);
+ 
+-#endif	/* USE_WINDOWS_SOCKET_CLUDGE */
++size_t winsocket_fread(void *buffer, size_t size, size_t num_items, FILE *file);
++char *winsocket_fgets(char *buffer, int size, FILE *file);
+ 
++size_t winsocket_fwrite(const void *buffer, size_t size, size_t num_items,
++                        FILE *file);
++int winsocket_fputc(int character, FILE *file);
++int winsocket_fputs(const char *string, FILE *file);
++int winsocket_fprintf(FILE *file, const char *format_string, ...);
++int winsocket_vfprintf(FILE *file, const char *format_string,
++                       va_list arguments);
+ 
+-#endif	/* GNU_GO_WINSOCKET_H */
++#endif /* ((defined(_WIN32) || defined(_WIN32_WCE)) && defined(ENABLE_SOCKET_SUPPORT)) */
+ 
++#endif /* GNU_GO_WINSOCKET_H */
+ 
+ /*
+  * Local Variables:
+-- 
+2.34.1
+
