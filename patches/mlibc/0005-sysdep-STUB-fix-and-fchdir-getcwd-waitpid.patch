@@ -1,0 +1,456 @@
+From a81599655b23292ce0cf20f296fe64c58b74e4a3 Mon Sep 17 00:00:00 2001
+From: Fedor Lapshin <fe.lap.prog@gmail.com>
+Date: Sun, 23 Mar 2025 23:18:08 +0300
+Subject: [PATCH] sysdep STUB fix and fchdir, getcwd, waitpid
+
+---
+ abis/depthos/stat.h                        |  69 ++++++++
+ sysdeps/depthos/generic/depthos.cpp        | 175 ++++++++++++++-------
+ sysdeps/depthos/include/abi-bits/stat.h    |   2 +-
+ sysdeps/depthos/include/abi-bits/statfs.h  |   1 -
+ sysdeps/depthos/include/abi-bits/statvfs.h |   2 +-
+ sysdeps/depthos/include/depthos/syscall.h  |   3 +
+ sysdeps/depthos/meson.build                |   2 +-
+ 7 files changed, 192 insertions(+), 62 deletions(-)
+ delete mode 120000 sysdeps/depthos/include/abi-bits/statfs.h
+
+diff --git a/abis/depthos/stat.h b/abis/depthos/stat.h
+index e69de29b..b57a5ff7 100644
+--- a/abis/depthos/stat.h
++++ b/abis/depthos/stat.h
+@@ -0,0 +1,69 @@
++#ifndef _ABIBITS_STAT_H
++#define _ABIBITS_STAT_H
++
++#include <abi-bits/uid_t.h>
++#include <abi-bits/gid_t.h>
++#include <bits/off_t.h>
++#include <abi-bits/mode_t.h>
++#include <abi-bits/dev_t.h>
++#include <abi-bits/ino_t.h>
++#include <abi-bits/blksize_t.h>
++#include <abi-bits/blkcnt_t.h>
++#include <abi-bits/nlink_t.h>
++#include <bits/ansi/time_t.h>
++#include <bits/ansi/timespec.h>
++
++#define S_IFMT 0x0F000
++#define S_IFBLK 0x08000
++#define S_IFCHR 0x08000
++#define S_IFIFO 0x04000
++#define S_IFREG 0x01000
++#define S_IFDIR 0x02000
++#define S_IFLNK 0x10000
++#define S_IFSOCK 0x20000
++
++#define S_IRWXU 0700
++#define S_IRUSR 0400
++#define S_IWUSR 0200
++#define S_IXUSR 0100
++#define S_IRWXG 070
++#define S_IRGRP 040
++#define S_IWGRP 020
++#define S_IXGRP 010
++#define S_IRWXO 07
++#define S_IROTH 04
++#define S_IWOTH 02
++#define S_IXOTH 01
++#define S_ISUID 04000
++#define S_ISGID 02000
++#define S_ISVTX 01000
++
++#define S_IREAD  S_IRUSR
++#define S_IWRITE S_IWUSR
++#define S_IEXEC  S_IXUSR
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++struct stat {
++	dev_t st_dev;
++	ino_t st_ino;
++	mode_t st_mode;
++	nlink_t st_nlink;
++	uid_t st_uid;
++	gid_t st_gid;
++	dev_t st_rdev;
++	off_t st_size;
++	struct timespec st_atim;
++	struct timespec st_mtim;
++	struct timespec st_ctim;
++	blksize_t st_blksize;
++	blkcnt_t st_blocks;
++};
++
++#ifdef __cplusplus
++}
++#endif
++
++#endif // _ABIBITS_STAT_H
+diff --git a/sysdeps/depthos/generic/depthos.cpp b/sysdeps/depthos/generic/depthos.cpp
+index 3398d2e0..d21b0148 100644
+--- a/sysdeps/depthos/generic/depthos.cpp
++++ b/sysdeps/depthos/generic/depthos.cpp
+@@ -1,41 +1,47 @@
+-#include <mlibc/fsfd_target.hpp>
+-#include <time.h>
+-#include <frg/formatting.hpp>
+-#include <frg/utility.hpp>
+-#include <mlibc/arch-defs.hpp>
+ #include <depthos/dirent.h>
+ #include <depthos/mmap.h>
+ #include <depthos/syscall.h>
+ #include <dirent.h>
+ #include <errno.h>
++#include <fcntl.h>
++#include <frg/formatting.hpp>
++#include <frg/utility.hpp>
+ #include <mlibc/all-sysdeps.hpp>
++#include <mlibc/arch-defs.hpp>
+ #include <mlibc/debug.hpp>
++#include <mlibc/fsfd_target.hpp>
+ #include <mlibc/posix-sysdeps.hpp>
+ #include <stddef.h>
+ #include <stdlib.h>
++#include <time.h>
+ #include <unistd.h>
+ 
+-#define PRINT_STUB                                                                   \
++// #define SILENCE_STUBS
++
++#ifndef SILENCE_STUBS
++#define PRINT_STUB                                                             \
+   mlibc::infoLogger() << __func__ << "() "                                     \
+                       << "is a stub"                                           \
+                       << "\n"                                                  \
+-                      << frg::endlog;                                          \
++                      << frg::endlog;
++#else
++#define PRINT_STUB
++#endif
+ 
+ #define STUB                                                                   \
+   {                                                                            \
+     PRINT_STUB                                                                 \
+-    return 0;                                                                  \
+-  } 
+-
++  }
+ 
+ #define UNIMPLEMENTED                                                          \
+   __ensure(!"UNIMPLEMENTED function was called");                              \
+   __builtin_unreachable();
+ 
+ namespace mlibc {
+-void sys_exit(int status) { 
++void sys_exit(int status) {
+   // mlibc::infoLogger() << "exit" << frg::endlog;
+-  syscall(SYS_EXIT, status); }
++  syscall(SYS_EXIT, status);
++}
+ 
+ int sys_write(int fd, const void *buf, size_t count, ssize_t *bytes_written) {
+   // mlibc::infoLogger() << "w " << fd << frg::endlog;
+@@ -72,21 +78,26 @@ int sys_open(const char *pathname, int flags, mode_t mode, int *fd) {
+   return 0;
+ }
+ int sys_openat(int dirfd, const char *path, int flags, mode_t mode, int *fd) {
+-  STUB
++  STUB;
++  return ENOSYS;
+ }
+ 
+-int sys_waitpid(pid_t pid, int *status, int flags, struct rusage *ru,
+-                pid_t *ret_pid) {
+-  return 0; // TODO: implement
+-}
++// int sys_waitpid(pid_t pid, int *status, int flags, struct rusage *ru,
++//                 pid_t *ret_pid) {
++//   mlibc::infoLogger() << "waitpid stub " << pid << " " << flags << "\n" <<
++//   frg::endlog; return 0; // TODO: implement
++// }
+ 
+-int sys_setrlimit(int resource, const struct rlimit *limit) {
+-  STUB
+-}
++int sys_setrlimit(int resource, const struct rlimit *limit) { STUB }
+ 
+ int sys_close(int fd) {
+   // mlibc::infoLogger() << "close" << frg::endlog;
+-  return syscall(SYS_CLOSE, fd); }
++  auto ret = syscall(SYS_CLOSE, fd);
++  if (ret < 0)
++    return -ret;
++  
++  return 0;
++}
+ 
+ int sys_seek(int fd, off_t offset, int whence, off_t *new_offset) { // TODO: off_t != off64_t 
+   // mlibc::infoLogger() << "seek: " << fd << " " << offset << " " << whence << frg::endlog;
+@@ -105,13 +116,13 @@ int sys_tcb_set(void *pointer) {
+ }
+ 
+ int sys_futex_wait(int *pointer, int expected, const struct timespec *time) {
+-  // STUB
+-  return 0;
++  STUB;
++  return ENOSYS;
+ }
+ 
+-int sys_futex_wake(int *pointer) { 
+-// STUB
+-  return 0;
++int sys_futex_wake(int *pointer) {
++  STUB;
++  return ENOSYS;
+ }
+ void sys_libc_log(const char *msg) { syscall(SYS_WRITE, 1, msg, strlen(msg)); }
+ 
+@@ -159,7 +170,8 @@ int sys_clock_get(int clock, time_t *secs, long *nanos) {
+ int sys_isatty(int fd) {
+   auto res = syscall(SYS_ISATTY, fd);
+   if (res < 0) {
+-    mlibc::infoLogger() << "isatty: " << fd << ": not a tty: " << -res << "\n" << frg::endlog;
++    mlibc::infoLogger() << "isatty: " << fd << ": not a tty: " << -res << "\n"
++                        << frg::endlog;
+     return -res;
+   }
+   mlibc::infoLogger() << "isatty: " << fd << ": a tty\n" << frg::endlog;
+@@ -168,14 +180,14 @@ int sys_isatty(int fd) {
+ int sys_sleep(time_t *sec, long *nanosec) {
+   auto res = syscall(SYS_SLEEP, *sec, *nanosec);
+   if (res < 0) {
+-    return res;
++    return -res;
+   }
+   return 0;
+ }
+ int sys_dup2(int fd, int flags, int newfd) {
+   auto res = syscall(SYS_DUP3, fd, newfd, flags);
+   if (res < 0) {
+-    return res;
++    return -res;
+   }
+   return 0;
+ }
+@@ -229,8 +241,18 @@ int sys_setpgid(pid_t pid, pid_t pgid) {
+   return 0;
+ }
+ int sys_fcntl(int fd, int request, va_list args, int *result) {
+-  STUB;
+-  return 0;
++  switch (request) {
++    case F_DUPFD: {
++      int arg = va_arg(args, int);
++      auto res = sys_dup2(fd, arg, -1);
++      if (res < 0) return -res;
++
++      *result = res;
++      return 0;
++    }
++  }
++  // *result = 0;
++  return ENOSYS;
+ }
+ int sys_ioctl(int fd, unsigned long request, void *arg, int *result) {
+   int ret = syscall(SYS_IOCTL, fd, request, arg);
+@@ -243,6 +265,7 @@ int sys_ioctl(int fd, unsigned long request, void *arg, int *result) {
+ }
+ int sys_tcgetattr(int fd, struct termios *attr) {
+   STUB;
++  memset(attr, 0, sizeof(struct termios));
+   return 0;
+ }
+ int sys_pselect(int num_fds, fd_set *read_set, fd_set *write_set,
+@@ -270,9 +293,11 @@ int sys_tcsetattr(int, int, const struct termios *attr) {
+ int sys_dup(int fd, int flags, int *newfd) {
+   auto res = syscall(SYS_DUP3, fd, -1, flags);
+   if (res < 0) {
+-    return res;
++    return -res;
+   }
+-  return res;
++  *newfd = res;
++
++  return 0;
+ }
+ int sys_stat(fsfd_target fsfdt, int fd, const char *path, int flags,
+              struct stat *statbuf) {
+@@ -347,34 +372,36 @@ int sys_read_entries(int fd, void *buffer, size_t max_size,
+ 
+   return 0;
+ }
+-int sys_peername(int fd, struct sockaddr *addr_ptr, socklen_t max_addr_length, socklen_t *actual_length) { STUB }
++int sys_peername(int fd, struct sockaddr *addr_ptr, socklen_t max_addr_length,
++                 socklen_t *actual_length) {
++  STUB
++}
+ 
+ int sys_sysconf(int num, long *ret) {
+   // TODO: syscall
+-	switch(num) {
+-		case _SC_PAGE_SIZE:
+-			*ret = mlibc::page_size;
+-      break;
+-		case _SC_OPEN_MAX:
+-			*ret = 256; 
+-      break;
+-		case _SC_PHYS_PAGES:
+-			*ret = 3906250; // 4 GB (not GiB)
+-      break;
+-		case _SC_CHILD_MAX:
+-      *ret = -1;
+-      break;
+-		case _SC_JOB_CONTROL:
+-      *ret = 0;
+-      break;
+-		case _SC_CLK_TCK:
+-      *ret = 1000;
+-      break;
++  switch (num) {
++  case _SC_PAGE_SIZE:
++    *ret = mlibc::page_size;
++    break;
++  case _SC_OPEN_MAX:
++    *ret = 256;
++    break;
++  case _SC_PHYS_PAGES:
++    *ret = 3906250; // 4 GB (not GiB)
++    break;
++  case _SC_CHILD_MAX:
++    *ret = -1;
++    break;
++  case _SC_JOB_CONTROL:
++    *ret = 0;
++    break;
++  case _SC_CLK_TCK:
++    *ret = 1000;
++    break;
+   }
+   return 0;
+ }
+ 
+-
+ int sys_times(struct tms *tms, clock_t *out) {
+   auto res = syscall(SYS_TIMES, tms);
+   if (res < 0)
+@@ -387,11 +414,13 @@ static_assert(sizeof(sigset_t) == 8);
+ 
+ extern "C" void __mlibc_signal_return(void);
+ 
+-int sys_sigaction(int num, const struct sigaction *newact, struct sigaction *oldact) {
++int sys_sigaction(int num, const struct sigaction *newact,
++                  struct sigaction *oldact) {
+   struct sigaction knew;
+   if (newact) {
+     knew = *newact;
+-    if (!knew.sa_restorer) knew.sa_restorer = __mlibc_signal_return;
++    if (!knew.sa_restorer)
++      knew.sa_restorer = __mlibc_signal_return;
+   }
+   auto res = syscall(SYS_SIGACTION, num, newact ? &knew : NULL, oldact);
+   if (res < 0)
+@@ -401,14 +430,44 @@ int sys_sigaction(int num, const struct sigaction *newact, struct sigaction *old
+ }
+ 
+ int sys_chdir(const char *path) {
++  mlibc::infoLogger() << "CHDIR!" << frg::endlog;
+   auto res = syscall(SYS_CHDIR, path);
+-  return res;
++  if (res < 0)
++    return -res;
++  return 0;
++}
++
++int sys_fchdir(int fd) {
++  mlibc::infoLogger() << "FCHDIR!" << frg::endlog;
++  auto res = syscall(SYS_FCHDIR, fd);
++  if (res < 0)
++    return -res;
++  return 0;
+ }
+ 
+ int sys_pipe(int *fds, int flags) {
+   mlibc::infoLogger() << "PIPE!" << frg::endlog;
+   auto res = syscall(SYS_PIPE, fds, flags);
+-  return res;
++  if (res < 0)
++    return -res;
++  return 0;
+ }
+ 
++int sys_waitpid(pid_t pid, int *status, int flags, struct rusage *ru,
++                pid_t *ret_pid) {
++  auto res = syscall(SYS_WAITPID, pid, status, flags);
++
++  if (res < 0)
++    return -res;
++
++  *ret_pid = res;
++
++  return 0;
++}
++
++// int sys_getcwd(char *buf, size_t size) {
++//   auto res = syscall(SYS_GETCWD, path);
++//   return res;
++// }
++
+ } // namespace mlibc
+diff --git a/sysdeps/depthos/include/abi-bits/stat.h b/sysdeps/depthos/include/abi-bits/stat.h
+index 82642c3c..71f7c402 120000
+--- a/sysdeps/depthos/include/abi-bits/stat.h
++++ b/sysdeps/depthos/include/abi-bits/stat.h
+@@ -1 +1 @@
+-../../../../abis/mlibc/stat.h
+\ No newline at end of file
++../../../../abis/depthos/stat.h
+\ No newline at end of file
+diff --git a/sysdeps/depthos/include/abi-bits/statfs.h b/sysdeps/depthos/include/abi-bits/statfs.h
+deleted file mode 120000
+index e3d202f5..00000000
+--- a/sysdeps/depthos/include/abi-bits/statfs.h
++++ /dev/null
+@@ -1 +0,0 @@
+-../../../../abis/linux/statfs.h
+\ No newline at end of file
+diff --git a/sysdeps/depthos/include/abi-bits/statvfs.h b/sysdeps/depthos/include/abi-bits/statvfs.h
+index 1fc80c2a..9aef7337 120000
+--- a/sysdeps/depthos/include/abi-bits/statvfs.h
++++ b/sysdeps/depthos/include/abi-bits/statvfs.h
+@@ -1 +1 @@
+-../../../../abis/linux/statvfs.h
+\ No newline at end of file
++../../../../abis/depthos/statvfs.h
+\ No newline at end of file
+diff --git a/sysdeps/depthos/include/depthos/syscall.h b/sysdeps/depthos/include/depthos/syscall.h
+index d9a7eb89..a73bd79b 100644
+--- a/sysdeps/depthos/include/depthos/syscall.h
++++ b/sysdeps/depthos/include/depthos/syscall.h
+@@ -31,6 +31,9 @@
+ #define SYS_SIGRESTORE 25
+ #define SYS_CHDIR 27
+ #define SYS_PIPE 28
++#define SYS_GETCWD 29
++#define SYS_FCHDIR 30
++#define SYS_WAITPID 31
+ 
+ using sc_data_t = long;
+ extern "C" {
+diff --git a/sysdeps/depthos/meson.build b/sysdeps/depthos/meson.build
+index 2b936c72..ea360b71 100644
+--- a/sysdeps/depthos/meson.build
++++ b/sysdeps/depthos/meson.build
+@@ -45,7 +45,7 @@ if not no_headers
+     'include/abi-bits/socket.h',
+     'include/abi-bits/socklen_t.h',
+     'include/abi-bits/stat.h',
+-    'include/abi-bits/statfs.h',
++    # 'include/abi-bits/statfs.h',
+     'include/abi-bits/statvfs.h',
+     'include/abi-bits/suseconds_t.h',
+     'include/abi-bits/termios.h',
+-- 
+2.34.1
+
